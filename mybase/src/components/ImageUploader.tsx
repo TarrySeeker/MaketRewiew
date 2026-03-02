@@ -2,19 +2,29 @@
 
 import React, { useState, useRef } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
-import { UploadCloud, Loader2, X } from 'lucide-react';
+import { UploadCloud, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface ImageUploaderProps {
     onUploadAction: (url: string) => void;
+    onMultiUploadAction?: (urls: string[]) => void;
     currentImage?: string;
     bucketName?: string;
+    multiple?: boolean;
+    maxFiles?: number;
 }
 
-export function ImageUploader({ onUploadAction, currentImage = "", bucketName = "products" }: ImageUploaderProps) {
+export function ImageUploader({
+    onUploadAction,
+    onMultiUploadAction,
+    currentImage = "",
+    bucketName = "products",
+    multiple = true,
+    maxFiles = 5,
+}: ImageUploaderProps) {
     const [isDragging, setIsDragging] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
-    const [previewUrl, setPreviewUrl] = useState<string>(currentImage);
+    const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const supabase = createBrowserClient(
@@ -35,62 +45,96 @@ export function ImageUploader({ onUploadAction, currentImage = "", bucketName = 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(false);
-        const files = e.dataTransfer.files;
-        if (files && files.length > 0) {
-            uploadFile(files[0]);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) {
+            processFiles(files);
         }
     };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            uploadFile(files[0]);
+        const files = Array.from(e.target.files || []);
+        if (files.length > 0) {
+            processFiles(files);
         }
     };
 
-    const uploadFile = async (file: File) => {
-        if (!file.type.startsWith('image/')) {
-            toast.error("Пожалуйста, выберите изображение");
+    const processFiles = (files: File[]) => {
+        const imageFiles = files.filter(f => f.type.startsWith('image/'));
+        if (imageFiles.length === 0) {
+            toast.error("Выберите изображения (PNG, JPG, WEBP)");
             return;
         }
 
-        setIsUploading(true);
-        try {
-            const fileExt = file.name.split('.').pop();
-            const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
-            const filePath = `${fileName}`;
+        const limited = imageFiles.slice(0, maxFiles);
+        if (imageFiles.length > maxFiles) {
+            toast.warning(`Можно загрузить не более ${maxFiles} файлов за раз. Первые ${maxFiles} будут загружены.`);
+        }
 
-            const { error: uploadError } = await supabase.storage
-                .from(bucketName)
-                .upload(filePath, file);
+        const oversized = limited.filter(f => f.size > 5 * 1024 * 1024);
+        if (oversized.length > 0) {
+            toast.error(`${oversized.length} файл(ов) больше 5MB и будут пропущены.`);
+        }
 
-            if (uploadError) {
-                throw uploadError;
-            }
-
-            const { data: publicUrlData } = supabase.storage
-                .from(bucketName)
-                .getPublicUrl(filePath);
-
-            const url = publicUrlData.publicUrl;
-            setPreviewUrl(url);
-            onUploadAction(url);
-            toast.success("Изображение успешно загружено");
-
-        } catch (error: any) {
-            console.error("Upload error:", error);
-            toast.error("Ошибка при загрузке: " + (error.message || "Неизвестная ошибка"));
-        } finally {
-            setIsUploading(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = '';
-            }
+        const valid = limited.filter(f => f.size <= 5 * 1024 * 1024);
+        if (valid.length > 0) {
+            uploadFiles(valid);
         }
     };
 
-    const clearImage = () => {
-        setPreviewUrl("");
-        onUploadAction("");
+    const uploadSingleFile = async (file: File): Promise<string | null> => {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2, 15)}_${Date.now()}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from(bucketName)
+            .upload(fileName, file, { upsert: true });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(fileName);
+
+        return publicUrlData.publicUrl;
+    };
+
+    const uploadFiles = async (files: File[]) => {
+        setIsUploading(true);
+        setUploadProgress({ done: 0, total: files.length });
+        const uploadedUrls: string[] = [];
+
+        for (let i = 0; i < files.length; i++) {
+            try {
+                const url = await uploadSingleFile(files[i]);
+                if (url) {
+                    uploadedUrls.push(url);
+                    onUploadAction(url);
+                }
+            } catch (error: any) {
+                console.error("Upload error:", error);
+                if (error.message?.includes('Bucket not found') || error.message?.includes('not found')) {
+                    toast.error("Хранилище '" + bucketName + "' не найдено. Выполните SQL-скрипт настройки в Supabase.");
+                    break;
+                } else if (error.message?.includes('security') || error.message?.includes('policy')) {
+                    toast.error("Нет прав на загрузку. Выполните SQL-скрипт настройки из раздела 'Настройка БД'.");
+                    break;
+                } else {
+                    toast.error(`Ошибка загрузки "${files[i].name}": ${error.message}`);
+                }
+            }
+            setUploadProgress({ done: i + 1, total: files.length });
+        }
+
+        if (uploadedUrls.length > 0) {
+            if (onMultiUploadAction) {
+                onMultiUploadAction(uploadedUrls);
+            }
+            const word = uploadedUrls.length === 1 ? "фото загружено" : `${uploadedUrls.length} фото загружено`;
+            toast.success(word);
+        }
+
+        setIsUploading(false);
+        setUploadProgress({ done: 0, total: 0 });
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -98,56 +142,41 @@ export function ImageUploader({ onUploadAction, currentImage = "", bucketName = 
 
     return (
         <div className="w-full">
-            {previewUrl ? (
-                <div className="relative w-full aspect-video rounded-md overflow-hidden border border-zinc-200 dark:border-zinc-800 group bg-zinc-100 dark:bg-zinc-900 flex items-center justify-center">
-                    <img src={previewUrl} alt="Preview" className="max-h-full max-w-full object-contain" />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            className="bg-white text-black px-3 py-1 rounded text-sm font-medium hover:bg-gray-200"
-                        >
-                            Изменить
-                        </button>
-                        <button
-                            type="button"
-                            onClick={clearImage}
-                            className="bg-red-500 text-white p-1 rounded hover:bg-red-600"
-                        >
-                            <X size={20} />
-                        </button>
+            <div
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`w-full h-32 border-2 border-dashed rounded-md flex flex-col justify-center items-center cursor-pointer transition-colors ${isDragging
+                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                    : 'border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
+                    }`}
+            >
+                {isUploading ? (
+                    <div className="flex flex-col items-center text-zinc-500">
+                        <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+                        <span className="text-sm font-medium">
+                            Загрузка {uploadProgress.done}/{uploadProgress.total}...
+                        </span>
                     </div>
-                </div>
-            ) : (
-                <div
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={() => fileInputRef.current?.click()}
-                    className={`w-full h-40 border-2 border-dashed rounded-md flex flex-col justify-center items-center cursor-pointer transition-colors ${isDragging
-                            ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                            : 'border-zinc-300 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
-                        }`}
-                >
-                    {isUploading ? (
-                        <div className="flex flex-col items-center text-zinc-500">
-                            <Loader2 className="w-8 h-8 mb-2 animate-spin" />
-                            <span className="text-sm font-medium">Загрузка...</span>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center text-zinc-500">
-                            <UploadCloud className="w-10 h-10 mb-2 text-zinc-400" />
-                            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Нажмите или перетащите файл</span>
-                            <span className="text-xs text-zinc-400 mt-1">PNG, JPG, WEBP до 5MB</span>
-                        </div>
-                    )}
-                </div>
-            )}
+                ) : (
+                    <div className="flex flex-col items-center text-zinc-500">
+                        <UploadCloud className="w-8 h-8 mb-2 text-zinc-400" />
+                        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                            Нажмите или перетащите файлы
+                        </span>
+                        <span className="text-xs text-zinc-400 mt-1">
+                            PNG, JPG, WEBP до 5MB · можно выбрать несколько
+                        </span>
+                    </div>
+                )}
+            </div>
             <input
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
                 accept="image/*"
+                multiple={multiple}
                 onChange={handleFileSelect}
                 disabled={isUploading}
             />

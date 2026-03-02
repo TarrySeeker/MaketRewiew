@@ -1,0 +1,87 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Cozy Minimalist Light Palette */
+  --color-brand-black: #fafafa;
+  /* Off-white background */
+  --color-brand-dark: #f0f0f0;
+  /* Slightly darker white for contrast panels */
+  --color-brand-gray: #e0e0e0;
+  /* Borders, subtle elements */
+  --color-brand-silver: #666666;
+  /* Secondary text, icons */
+  --color-brand-white: #111111;
+  /* Actually dark text to map to old text variables */
+  --color-brand-accent: #111111;
+
+  --font-sans: var(--font-inter), sans-serif;
+  --font-heading: var(--font-inter), sans-serif;
+  /* Use sans for both for minimalism */
+
+  --animate-fade-in-up: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-scale-in: scaleIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-marquee: marquee 30s linear infinite;
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+
+    to {
+      transform: translateX(-50%);
+    }
+  }
+}
+
+@layer base {
+  :root {
+    --background: #fafafa;
+    --foreground: #111111;
+    --border: #e0e0e0;
+    --input: #f0f0f0;
+    --ring: #111111;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Hide scrollbar for clean look */
+::-webkit-scrollbar {
+  width: 0px;
+  background: transparent;
+}

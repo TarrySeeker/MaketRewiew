@@ -1,41 +1,36 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, ShoppingCart, Hammer, MessageSquare } from "lucide-react";
-import { supabase } from "@/utils/supabase/server";
+import { Package, ShoppingCart, MessageSquare, Loader2 } from "lucide-react";
+import { adminApi } from "@/lib/admin-api";
 
-export default async function DashboardPage() {
-    // В реальном проекте мы бы получали эти данные из БД
-    // Для MVP админки мы можем вывести плейсхолдеры или сделать быстрые запросы
-    const { count: ordersCount } = await supabase.from('orders').select('*', { count: 'exact', head: true });
-    const { count: productsCount } = await supabase.from('products').select('*', { count: 'exact', head: true });
-    const { count: servicesCount } = await supabase.from('services').select('*', { count: 'exact', head: true });
-    const { count: applicationsCount } = await supabase.from('applications').select('*', { count: 'exact', head: true });
+export default function DashboardPage() {
+    const [stats, setStats] = useState([
+        { title: "Всего заказов", value: 0, icon: ShoppingCart, color: "text-blue-500" },
+        { title: "Товары", value: 0, icon: Package, color: "text-green-500" },
+        { title: "Новые заявки", value: 0, icon: MessageSquare, color: "text-purple-500" },
+    ]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const stats = [
-        {
-            title: "Всего заказов",
-            value: ordersCount || 0,
-            icon: ShoppingCart,
-            color: "text-blue-500",
-        },
-        {
-            title: "Товары (Мангалы)",
-            value: productsCount || 0,
-            icon: Package,
-            color: "text-green-500",
-        },
-        {
-            title: "Услуги",
-            value: servicesCount || 0,
-            icon: Hammer,
-            color: "text-orange-500",
-        },
-        {
-            title: "Новые заявки",
-            value: applicationsCount || 0,
-            icon: MessageSquare,
-            color: "text-purple-500",
-        },
-    ];
+    useEffect(() => {
+        async function loadStats() {
+            const tables = ["orders", "products", "applications"];
+            const results = await Promise.allSettled(
+                tables.map(t => adminApi({ action: "count", table: t }))
+            );
+
+            setStats(prev => prev.map((stat, idx) => {
+                const result = results[idx];
+                if (result.status === "fulfilled" && !result.value.error) {
+                    return { ...stat, value: result.value.count || 0 };
+                }
+                return stat;
+            }));
+            setIsLoading(false);
+        }
+        loadStats();
+    }, []);
 
     return (
         <div className="space-y-6">
@@ -46,7 +41,7 @@ export default async function DashboardPage() {
                 </p>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {stats.map((stat) => (
                     <Card key={stat.title}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -56,7 +51,11 @@ export default async function DashboardPage() {
                             <stat.icon className={`h-4 w-4 ${stat.color}`} />
                         </CardHeader>
                         <CardContent>
-                            <div className="text-2xl font-bold">{stat.value}</div>
+                            {isLoading ? (
+                                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            ) : (
+                                <div className="text-2xl font-bold">{stat.value}</div>
+                            )}
                         </CardContent>
                     </Card>
                 ))}

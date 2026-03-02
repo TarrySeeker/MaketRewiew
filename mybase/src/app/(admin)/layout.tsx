@@ -1,12 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-ShoppingCart,
+import { usePathname, useRouter } from "next/navigation";
+import { createBrowserClient } from "@supabase/ssr";
+import {
+    ShoppingCart,
     Box,
     MessageSquare,
     LogOut,
-    FileText
+    FileText,
+    Settings
 } from "lucide-react";
 
 const navigation = [
@@ -14,13 +17,25 @@ const navigation = [
     { name: "Товары", href: "/products", icon: Box },
     { name: "Заявки", href: "/applications", icon: MessageSquare },
     { name: "Контент (CMS)", href: "/content", icon: FileText },
+    { name: "Настройка БД", href: "/setup", icon: Settings },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
+    const router = useRouter();
+
+    const handleLogout = async () => {
+        const supabase = createBrowserClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+        await supabase.auth.signOut();
+        router.push("/login");
+        router.refresh();
+    };
 
     return (
-        <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex ext-zinc-900 dark:text-zinc-100">
+        <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex text-zinc-900 dark:text-zinc-100">
             {/* Sidebar */}
             <aside className="w-64 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 hidden md:flex flex-col">
                 <div className="h-16 flex items-center px-6 border-b border-zinc-200 dark:border-zinc-800">
@@ -47,7 +62,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 </nav>
 
                 <div className="p-4 border-t border-zinc-200 dark:border-zinc-800">
-                    <button className="flex items-center gap-3 px-3 py-2 w-full rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 transition-colors">
+                    <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 px-3 py-2 w-full rounded-md text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100 transition-colors"
+                    >
                         <LogOut className="h-5 w-5" />
                         <span className="text-sm font-medium">Выйти</span>
                     </button>
